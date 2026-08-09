@@ -25,7 +25,7 @@ def build(text: str) -> dict:
         "characters":len(text),
         "headings":headings,
         "protected_citation_count":len(re.findall(r"⟦CIT_[0-9A-F]{12}⟧", protected)),
-        "unique_protected_citations":len(cmap),
+        "unique_protected_citations":len(set(cmap.values())),
         "citation_tokens":list(cmap.keys()),
         "qa_required":["citation_integrity","locked_terminology","epistemic_strength","semantic_fidelity","concept_preservation","claim_preservation","negation_preservation","condition_preservation","relation_preservation"]
     }
