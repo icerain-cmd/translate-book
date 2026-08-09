@@ -29,7 +29,6 @@ def protect(text: str):
     for pat in PATTERNS:
         for m in pat.finditer(text):
             spans.append((m.start(), m.end(), m.group(0)))
-    # longest-first overlap resolution
     spans.sort(key=lambda x: (x[0], -(x[1]-x[0])))
     accepted = []
     end = -1
@@ -40,8 +39,11 @@ def protect(text: str):
     out=[]; pos=0
     for s,e,val in accepted:
         out.append(text[pos:s])
-        token = "⟦CIT_" + hashlib.sha256(val.encode("utf-8")).hexdigest()[:12].upper() + "⟧"
-        # identical citation reuses token intentionally
+        # Position participates in the token so repeated identical citations get
+        # distinct immutable markers. Strict restore can therefore detect loss
+        # of a single repeated occurrence.
+        token_seed = f"{s}:{e}:{val}"
+        token = "⟦CIT_" + hashlib.sha256(token_seed.encode("utf-8")).hexdigest()[:12].upper() + "⟧"
         mapping[token] = val
         out.append(token); pos=e
     out.append(text[pos:])
