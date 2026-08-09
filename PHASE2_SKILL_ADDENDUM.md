@@ -1,0 +1,3 @@
+# Phase 2 — Theory Preservation Layer
+
+For scholarly Korean→English mode, load `author_concepts.json` and `claims.json` when present. Validate with `scripts/theory_contract.py`; never auto-promote extracted concepts or claims to author-approved contracts. Per chunk, run `scripts/claim_audit.py`, then an LLM verifier using `scripts/theory_audit_contract.py`. Retranslate once when concept, claim, negation, or relation preservation fails. After passing chunks, harmonize only at chapter scope using `scripts/chapter_harmonizer_contract.py`, then re-run terminology, citation, epistemic, and theory audits. A stylistic improvement is allowed; theoretical modification is blocking.
