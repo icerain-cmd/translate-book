@@ -4,6 +4,17 @@
 
 translate-book is a Claude Code Skill that translates books (PDF/DOCX/EPUB) into any language using parallel subagents. Published on ClawHub as `translate-book` and on GitHub as `deusyu/translate-book`.
 
+## Scholarly KO→EN routing
+
+When the request is specifically Korean → English and clearly academic/scholarly (for example a paper, journal article, thesis, dissertation, or an explicit `academic`/`scholarly` mode), route conservatively to the scholarly pipeline instead of the general translation prompt.
+
+- Prefer `/scholarly-translate <request>` when the user explicitly asks for Korean scholarly writing to be translated into academic English.
+- Run `python3 scripts/scholarly_dispatch.py --source-lang ko --target-lang en --mode scholarly --request "<user request>"` when routing is ambiguous.
+- If the result is `scholarly-ko-en`, read and obey `PHASE1_SKILL_ADDENDUM.md`, `PHASE2_SKILL_ADDENDUM.md`, and `SCHOLARLY_TRANSLATION.md` in addition to the normal `SKILL.md` conversion/chunk/manifest/resume workflow.
+- Use `profiles/ko-en-humanities.json` by default unless the user supplies another scholarly profile.
+- General Korean→English prose and all non-Korean-source translations must remain on the original general path.
+- A blocking scholarly QA failure must prevent final publication/build until the failed chunk is retranslated and re-audited.
+
 ## Structure
 
 - `SKILL.md` — Skill definition, the orchestration logic that Claude Code / OpenClaw follows
@@ -17,6 +28,9 @@ translate-book is a Claude Code Skill that translates books (PDF/DOCX/EPUB) into
 - `scripts/merge_and_build.py` — Merge translated chunks → HTML/DOCX/EPUB/PDF
 - `scripts/calibre_html_publish.py` — Calibre format conversion wrapper
 - `scripts/template.html`, `scripts/template_ebook.html` — HTML templates
+- `scripts/scholarly_dispatch.py` — Conservative router for scholarly Korean→English mode
+- `SCHOLARLY_TRANSLATION.md`, `PHASE1_SKILL_ADDENDUM.md`, `PHASE2_SKILL_ADDENDUM.md` — scholarly integrity and theory-preservation orchestration
+- `.claude/commands/scholarly-translate.md` — explicit scholarly KO→EN command
 
 ## Testing changes
 
