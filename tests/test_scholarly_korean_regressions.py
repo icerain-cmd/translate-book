@@ -23,6 +23,15 @@ class ScholarlyKoreanRegressionTests(unittest.TestCase):
         self.assertEqual(report["protected_citation_count"], 2)
         self.assertEqual(report["unique_protected_citations"], 1)
 
+    def test_loss_of_one_repeated_citation_is_blocking(self):
+        source = "첫 인용 (김연구, 2026). 다시 인용 (김연구, 2026)."
+        protected, mapping = protect(source)
+        tokens = list(mapping)
+        self.assertEqual(len(tokens), 2)
+        self.assertNotEqual(tokens[0], tokens[1])
+        with self.assertRaises(ValueError):
+            restore(protected.replace(tokens[0], "", 1), mapping)
+
     def test_numbered_pdf_headings_are_inferred(self):
         source = "1. 서론\n충분한 한국어 본문입니다.\n5.1 하위 절\n또 다른 한국어 본문입니다."
         report = build(source)
