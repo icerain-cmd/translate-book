@@ -37,17 +37,23 @@ Claude must not silently change LOCKED terminology, claim strength, negation, co
 
 ## Portable handoff paths (Phase 2.2.1)
 
-SHA-256 is the artifact identity. Filesystem paths are only locators.
+Schema v2 treats the pair `relative_path + sha256` as the canonical artifact identity. OS-dependent absolute paths are locators only.
 
 New schema-v2 handoffs record:
-- the producer's original `path`
-- a `relative_path` anchored at the handoff directory when possible
-- alternate Windows/WSL `locators`
+- a canonical `relative_path`, anchored at the handoff directory and normalized to POSIX `/` separators
 - the immutable SHA-256
+- the producer's original `path` as a legacy/diagnostic locator
+- alternate Windows/WSL `locators` when they can be derived
 
-Validation resolves the relative path first, then the original/alternate locators. Common `R:\...` ↔ `/mnt/r/...` mappings are translated automatically. This means a handoff created by Codex under WSL can be reviewed by Claude Code under native Windows without `--no-file-check`, provided the same R-drive files are visible.
+The canonical relative path may include parent segments such as `../source/paper.md`, so the source, draft, contracts, and handoff do not have to live in the same directory. Schema v2 validation requires a canonical `relative_path` for the source and translation; a handoff that cannot express those artifacts relative to its anchor fails early instead of silently becoming host-specific.
 
-Schema-v1 handoffs remain valid for backward compatibility, but new production runs should create schema v2.
+Validation resolves the canonical relative path first, then the original/alternate locators. Common `R:\...` ↔ `/mnt/r/...` mappings are translated automatically. Relative paths written with either `/` or `\` are accepted when reading older or manually edited handoffs.
+
+When several candidate files exist, the resolver does not trust the first path that happens to exist. It prefers the candidate whose SHA-256 matches the handoff. This prevents a stale producer-side absolute path from masking the correct shared-drive artifact.
+
+This means a handoff created by Codex under WSL can be reviewed by Claude Code under native Windows without `--no-file-check`, provided the same R-drive project tree is visible on both hosts.
+
+Schema-v1 handoffs remain valid for backward compatibility, including automatic Windows/WSL locator translation where possible, but new production runs should create schema v2.
 
 ## Reviewer outputs
 
