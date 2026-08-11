@@ -9,10 +9,20 @@ translate-book is a Codex Skill that translates books (PDF/DOCX/EPUB) into any l
 When the request is specifically Korean → English and clearly academic/scholarly (for example a paper, journal article, thesis, dissertation, or an explicit `academic`/`scholarly` mode), route conservatively to the scholarly pipeline instead of the general translation prompt.
 
 - Run `python3 scripts/scholarly_dispatch.py --source-lang ko --target-lang en --mode scholarly --request "<user request>"` when routing is ambiguous.
-- If the result is `scholarly-ko-en`, read and obey `PHASE1_SKILL_ADDENDUM.md`, `PHASE2_SKILL_ADDENDUM.md`, and `SCHOLARLY_TRANSLATION.md` in addition to the normal `SKILL.md` conversion/chunk/manifest/resume workflow.
+- If the result is `scholarly-ko-en`, read and obey `PHASE1_SKILL_ADDENDUM.md`, `PHASE2_SKILL_ADDENDUM.md`, `PHASE2_2_HANDOFF.md`, and `SCHOLARLY_TRANSLATION.md` in addition to the normal `SKILL.md` conversion/chunk/manifest/resume workflow.
 - Use `profiles/ko-en-humanities.json` by default unless the user supplies another scholarly profile.
 - General Korean→English prose and all non-Korean-source translations must remain on the original general path.
 - A blocking scholarly QA failure must prevent final publication/build until the failed chunk is retranslated and re-audited.
+
+## Phase 2.2 role: Codex is the scholarly translator
+
+For routine scholarly KO→EN production, use the asymmetric workflow **Codex Translator → Claude Reviewer**. Do not spend a second full translation pass merely to compare agents unless the user explicitly requests an independent A/B experiment.
+
+Codex owns source normalization, preflight, terminology/concept/claim contracts, chunk translation, Phase 1/2 audits, failed-chunk retranslation, merge, citation restoration, and the first complete English draft.
+
+Before finishing a scholarly translation, Codex MUST create a verified handoff with `scripts/scholarly_handoff.py create` and write `<temp_dir>/SCHOLARLY_HANDOFF.json` plus `<temp_dir>/HANDOFF.md`. The handoff records source/draft hashes, translation audit and contracts, and whether chunks were freshly translated, retranslated, or reused/resumed.
+
+After handoff, the Korean source and Codex translator artifacts are immutable reviewer inputs. If Codex changes them, regenerate the handoff so its hashes remain authoritative. Never claim an independent fresh translation when existing output chunks were resumed or reused; record those chunks in handoff provenance.
 
 ## Structure
 
@@ -26,9 +36,10 @@ When the request is specifically Korean → English and clearly academic/scholar
 - `scripts/run_state.py` — Selective re-translation planner and run_state.json recorder
 - `scripts/merge_and_build.py` — Merge translated chunks → HTML/DOCX/EPUB/PDF
 - `scripts/calibre_html_publish.py` — Calibre format conversion wrapper
-- `scripts/template.html`, `scripts/template_ebook.html` — HTML templates
 - `scripts/scholarly_dispatch.py` — Conservative router for scholarly Korean→English mode
-- `SCHOLARLY_TRANSLATION.md`, `PHASE1_SKILL_ADDENDUM.md`, `PHASE2_SKILL_ADDENDUM.md` — scholarly integrity and theory-preservation orchestration
+- `scripts/scholarly_handoff.py` — hashed Codex→Claude scholarly handoff contract
+- `scripts/reviewer_gate.py` — completion gate for Claude reviewer outputs
+- `SCHOLARLY_TRANSLATION.md`, `PHASE1_SKILL_ADDENDUM.md`, `PHASE2_SKILL_ADDENDUM.md`, `PHASE2_2_HANDOFF.md` — scholarly integrity, theory-preservation, and handoff orchestration
 
 ## Testing changes
 
