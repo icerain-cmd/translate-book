@@ -8,12 +8,33 @@ translate-book is a Claude Code Skill that translates books (PDF/DOCX/EPUB) into
 
 When the request is specifically Korean → English and clearly academic/scholarly (for example a paper, journal article, thesis, dissertation, or an explicit `academic`/`scholarly` mode), route conservatively to the scholarly pipeline instead of the general translation prompt.
 
-- Prefer `/scholarly-translate <request>` when the user explicitly asks for Korean scholarly writing to be translated into academic English.
+- Prefer `/scholarly-translate <request>` only when the user explicitly wants Claude Code itself to perform a standalone scholarly translation.
+- For routine production, prefer the Phase 2.2 split workflow: **Codex Translator → Claude Reviewer**.
+- If `SCHOLARLY_HANDOFF.json` is supplied or present for the manuscript, reviewer mode takes precedence over starting another full translation. Use `/scholarly-review <path-to-SCHOLARLY_HANDOFF.json>`.
 - Run `python3 scripts/scholarly_dispatch.py --source-lang ko --target-lang en --mode scholarly --request "<user request>"` when routing is ambiguous.
-- If the result is `scholarly-ko-en`, read and obey `PHASE1_SKILL_ADDENDUM.md`, `PHASE2_SKILL_ADDENDUM.md`, and `SCHOLARLY_TRANSLATION.md` in addition to the normal `SKILL.md` conversion/chunk/manifest/resume workflow.
+- Read `PHASE1_SKILL_ADDENDUM.md`, `PHASE2_SKILL_ADDENDUM.md`, `PHASE2_2_HANDOFF.md`, and `SCHOLARLY_TRANSLATION.md` for scholarly work.
 - Use `profiles/ko-en-humanities.json` by default unless the user supplies another scholarly profile.
 - General Korean→English prose and all non-Korean-source translations must remain on the original general path.
-- A blocking scholarly QA failure must prevent final publication/build until the failed chunk is retranslated and re-audited.
+
+## Phase 2.2 role: Claude Code is reviewer / publication editor
+
+When a valid Codex `SCHOLARLY_HANDOFF.json` exists, Claude Code MUST NOT independently retranslate the Korean manuscript from scratch. Validate the handoff first:
+
+```bash
+python3 scripts/scholarly_handoff.py validate <temp_dir>/SCHOLARLY_HANDOFF.json
+```
+
+Treat the Korean source, Codex draft, contracts, and translation audit named in the handoff as immutable inputs. Review the Codex draft against the Korean source and make only traceable corrections or publication edits.
+
+Allowed work includes semantic correction, academic-English editing, terminology-family consistency, citation localization, bibliography normalization, and duplicate/front-matter cleanup. Do not silently alter LOCKED terminology, claim strength, negation, conditions, theoretical relations, or author-defined distinctions.
+
+Write three new reviewer outputs without overwriting Codex artifacts:
+
+- `final-en.md`
+- `publication-audit.md`
+- `review-changes.md`
+
+`review-changes.md` records location, BEFORE, AFTER, reason, change type, and whether meaning changed for substantive edits. Before declaring completion, run `scripts/reviewer_gate.py` with the handoff and all three outputs. Translation fidelity and publication readiness are separate gates.
 
 ## Structure
 
@@ -29,8 +50,11 @@ When the request is specifically Korean → English and clearly academic/scholar
 - `scripts/calibre_html_publish.py` — Calibre format conversion wrapper
 - `scripts/template.html`, `scripts/template_ebook.html` — HTML templates
 - `scripts/scholarly_dispatch.py` — Conservative router for scholarly Korean→English mode
-- `SCHOLARLY_TRANSLATION.md`, `PHASE1_SKILL_ADDENDUM.md`, `PHASE2_SKILL_ADDENDUM.md` — scholarly integrity and theory-preservation orchestration
-- `.claude/commands/scholarly-translate.md` — explicit scholarly KO→EN command
+- `scripts/scholarly_handoff.py` — hashed Codex→Claude scholarly handoff contract
+- `scripts/reviewer_gate.py` — reviewer completion gate
+- `SCHOLARLY_TRANSLATION.md`, `PHASE1_SKILL_ADDENDUM.md`, `PHASE2_SKILL_ADDENDUM.md`, `PHASE2_2_HANDOFF.md` — scholarly orchestration
+- `.claude/commands/scholarly-translate.md` — standalone scholarly KO→EN command
+- `.claude/commands/scholarly-review.md` — Phase 2.2 Codex-draft review command
 
 ## Testing changes
 
