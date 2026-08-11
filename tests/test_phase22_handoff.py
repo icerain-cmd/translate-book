@@ -5,7 +5,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from scholarly_handoff import (
-    _windows_to_wsl, _wsl_to_windows, build, validate, markdown,
+    _windows_to_wsl, _wsl_to_windows, build, validate, markdown, path_candidates,
     resolve_artifact, sha256_file,
 )
 from reviewer_gate import check
@@ -94,6 +94,12 @@ class Phase22Tests(unittest.TestCase):
     def test_windows_wsl_locator_conversion(self):
         self.assertEqual(_windows_to_wsl(r"R:\papers\kant\draft-en.md"), "/mnt/r/papers/kant/draft-en.md")
         self.assertEqual(_wsl_to_windows("/mnt/r/papers/kant/draft-en.md"), r"R:\papers\kant\draft-en.md")
+
+    def test_cross_host_absolute_candidates_include_mapped_locator(self):
+        wsl_candidates = {str(p) for p in path_candidates("/mnt/r/papers/kant/draft-en.md")}
+        windows_candidates = {str(p) for p in path_candidates(r"R:\papers\kant\draft-en.md")}
+        self.assertIn(str(Path(r"R:\papers\kant\draft-en.md")), wsl_candidates)
+        self.assertIn(str(Path("/mnt/r/papers/kant/draft-en.md")), windows_candidates)
 
     def test_schema2_requires_canonical_relative_path(self):
         h = build(self.s, self.e, anchor=self.d)
