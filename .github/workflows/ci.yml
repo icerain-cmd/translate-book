@@ -11,8 +11,14 @@ permissions:
 
 jobs:
   test:
-    name: Python Checks
-    runs-on: ubuntu-latest
+    name: Python Checks (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    runs-on: ${{ matrix.os }}
     env:
       PYTHONPYCACHEPREFIX: .pycache
 
