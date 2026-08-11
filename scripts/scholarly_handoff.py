@@ -64,7 +64,7 @@ def path_candidates(path: str | Path, handoff_dir: str | Path | None = None):
             seen.add(key)
             out.append(p)
 
-    if Path(s).is_absolute() or _is_windows_absolute(s):
+    if s.startswith("/") or Path(s).is_absolute() or _is_windows_absolute(s):
         add(s)
         add(_windows_to_wsl(s))
         add(_wsl_to_windows(s))
