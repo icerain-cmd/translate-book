@@ -35,6 +35,20 @@ Allowed change classes:
 
 Claude must not silently change LOCKED terminology, claim strength, negation, conditions, theoretical relations, or author-defined distinctions.
 
+## Portable handoff paths (Phase 2.2.1)
+
+SHA-256 is the artifact identity. Filesystem paths are only locators.
+
+New schema-v2 handoffs record:
+- the producer's original `path`
+- a `relative_path` anchored at the handoff directory when possible
+- alternate Windows/WSL `locators`
+- the immutable SHA-256
+
+Validation resolves the relative path first, then the original/alternate locators. Common `R:\...` ↔ `/mnt/r/...` mappings are translated automatically. This means a handoff created by Codex under WSL can be reviewed by Claude Code under native Windows without `--no-file-check`, provided the same R-drive files are visible.
+
+Schema-v1 handoffs remain valid for backward compatibility, but new production runs should create schema v2.
+
 ## Reviewer outputs
 
 Claude Code writes three separate outputs, never overwriting the Codex draft:
