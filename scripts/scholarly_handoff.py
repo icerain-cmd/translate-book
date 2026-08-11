@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, hashlib, json, re
+import argparse, hashlib, json, os, re
 from pathlib import Path
 
 SCHEMA_VERSION = 2
@@ -13,6 +13,7 @@ REQUIRED_DO_NOT_REVERSE = [
     "Do not strengthen or weaken theoretical claims, negations, conditions, or modality.",
 ]
 
+
 def sha256_file(path: str | Path) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -20,11 +21,13 @@ def sha256_file(path: str | Path) -> str:
             h.update(block)
     return h.hexdigest()
 
+
 def _windows_to_wsl(s: str) -> str | None:
     m = re.match(r"^([A-Za-z]):[\\/](.*)$", s)
     if not m:
         return None
     return "/mnt/" + m.group(1).lower() + "/" + m.group(2).replace("\\", "/")
+
 
 def _wsl_to_windows(s: str) -> str | None:
     m = re.match(r"^/mnt/([A-Za-z])/(.*)$", s)
@@ -32,63 +35,133 @@ def _wsl_to_windows(s: str) -> str | None:
         return None
     return m.group(1).upper() + ":\\" + m.group(2).replace("/", "\\")
 
+
+def _is_windows_absolute(s: str) -> bool:
+    return bool(re.match(r"^[A-Za-z]:[\\/]", s))
+
+
+def _portable_relative_candidate(relative_path: str | Path, handoff_dir: str | Path | None):
+    if not handoff_dir:
+        return None
+    s = str(relative_path).strip()
+    if not s or s.startswith("/") or _is_windows_absolute(s):
+        return None
+    parts = [part for part in re.split(r"[\\/]+", s) if part not in ("", ".")]
+    return Path(handoff_dir).joinpath(*parts)
+
+
 def path_candidates(path: str | Path, handoff_dir: str | Path | None = None):
     s = str(path)
     seen = set()
     out = []
+
     def add(v):
         if not v:
             return
-        key = str(v)
+        p = Path(v)
+        key = str(p)
         if key not in seen:
-            seen.add(key); out.append(Path(v))
-    add(s)
-    add(_windows_to_wsl(s))
-    add(_wsl_to_windows(s))
-    if handoff_dir:
-        base = Path(handoff_dir)
-        p = Path(s)
-        if not p.is_absolute() and not re.match(r"^[A-Za-z]:[\\/]", s):
-            add(base / p)
-        # Cross-host fallback: same basename beside the handoff or one directory above.
-        name = s.replace("\\", "/").rstrip("/").split("/")[-1]
-        if name:
-            add(base / name); add(base.parent / name)
+            seen.add(key)
+            out.append(p)
+
+    if s.startswith("/") or Path(s).is_absolute() or _is_windows_absolute(s):
+        add(s)
+        add(_windows_to_wsl(s))
+        add(_wsl_to_windows(s))
+    else:
+        # Relative locators are anchored to the handoff, never to the caller's CWD.
+        rel = _portable_relative_candidate(s, handoff_dir)
+        if rel is not None:
+            add(rel)
+        else:
+            add(s)
+
     return out
+
+
+def _existing_local_path(path: str | Path, *, allow_dir: bool = False):
+    for p in path_candidates(path):
+        if p.exists() and (p.is_file() or (allow_dir and p.is_dir())):
+            return p
+    return None
+
+
+def _canonical_relative_path(path: Path, anchor: Path) -> str | None:
+    try:
+        rel = os.path.relpath(path.resolve(), anchor.resolve())
+    except (ValueError, OSError):
+        return None
+    # POSIX separators keep the canonical relative path producer-OS independent.
+    return rel.replace("\\", "/")
+
+
+def _artifact_candidate_paths(obj, handoff_dir=None):
+    seen = set()
+    out = []
+
+    def add(p):
+        if p is None:
+            return
+        key = str(p)
+        if key not in seen:
+            seen.add(key)
+            out.append(p)
+
+    if obj.get("relative_path"):
+        add(_portable_relative_candidate(obj["relative_path"], handoff_dir))
+    if obj.get("path"):
+        for p in path_candidates(obj["path"], handoff_dir):
+            add(p)
+    for locator in obj.get("locators") or []:
+        raw = locator.get("path") if isinstance(locator, dict) else locator
+        if raw:
+            for p in path_candidates(raw, handoff_dir):
+                add(p)
+    return out
+
 
 def resolve_artifact(obj, handoff_dir=None):
     if not obj:
         return None
-    paths = []
-    if obj.get("relative_path"):
-        paths.append(obj["relative_path"])
-    if obj.get("path"):
-        paths.append(obj["path"])
-    paths.extend(obj.get("locators") or [])
-    for raw in paths:
-        for p in path_candidates(raw, handoff_dir):
-            if p.exists() and p.is_file():
-                return p
-    return None
+    expected = obj.get("sha256")
+    existing = []
+    for p in _artifact_candidate_paths(obj, handoff_dir):
+        if p.exists() and p.is_file():
+            if expected and sha256_file(p) == expected:
+                return p.resolve()
+            existing.append(p.resolve())
+    # If nothing matches the expected hash, preserve an existing candidate so
+    # validate() reports a hash mismatch instead of incorrectly reporting missing.
+    return existing[0] if existing else None
+
 
 def artifact(path: str | Path | None, anchor: str | Path | None = None):
     if not path:
         return None
-    p = Path(path)
-    obj = {"path": str(p), "sha256": sha256_file(p) if p.exists() and p.is_file() else None}
-    if anchor:
-        try:
-            obj["relative_path"] = str(p.resolve().relative_to(Path(anchor).resolve()))
-        except (ValueError, OSError):
-            obj["relative_path"] = None
-    else:
-        obj["relative_path"] = None
+
+    original = str(path)
+    local = _existing_local_path(path)
+    obj = {
+        "path": original,  # producer/legacy locator only in schema v2
+        "sha256": sha256_file(local) if local else None,
+        "relative_path": None,
+        "locators": [],
+    }
+
+    if anchor and local:
+        local_anchor = _existing_local_path(anchor, allow_dir=True) or Path(anchor)
+        obj["relative_path"] = _canonical_relative_path(local, local_anchor)
+
     locators = []
-    for candidate in (_windows_to_wsl(str(p)), _wsl_to_windows(str(p))):
-        if candidate and candidate != str(p):
-            locators.append(candidate)
+    for value in (original, str(local) if local else None):
+        if not value:
+            continue
+        for candidate in (value, _windows_to_wsl(value), _wsl_to_windows(value)):
+            if candidate and candidate != original and candidate not in locators:
+                locators.append(candidate)
     obj["locators"] = locators
     return obj
+
 
 def build(source, translation, *, temp_dir=None, translation_audit=None, terminology=None, concepts=None, claims=None,
           fresh_translation=False, translated_chunks=None, retranslated_chunks=None, reused_chunks=None, producer="codex", anchor=None):
@@ -98,7 +171,12 @@ def build(source, translation, *, temp_dir=None, translation_audit=None, termino
         "workflow": WORKFLOW,
         "producer": {"agent": producer, "role": "translator"},
         "reviewer": {"agent": "claude-code", "role": "reviewer-publication-editor"},
-        "path_policy": {"identity": "sha256", "relative_to": "handoff_anchor", "cross_host_locators": True},
+        "path_policy": {
+            "identity": ["relative_path", "sha256"],
+            "relative_path_format": "posix",
+            "absolute_paths": "locators_only",
+            "cross_host_locators": True,
+        },
         "source": artifact(source, anchor),
         "translation": artifact(translation, anchor),
         "temp_dir": str(temp_dir) if temp_dir else None,
@@ -125,9 +203,11 @@ def build(source, translation, *, temp_dir=None, translation_audit=None, termino
         },
     }
 
+
 def validate(data, verify_files=True, handoff_dir=None):
     errors = []
-    if data.get("schema_version") not in (1, SCHEMA_VERSION):
+    schema = data.get("schema_version")
+    if schema not in (1, SCHEMA_VERSION):
         errors.append("unsupported schema_version")
     if data.get("workflow") != WORKFLOW:
         errors.append("wrong workflow")
@@ -137,17 +217,27 @@ def validate(data, verify_files=True, handoff_dir=None):
         errors.append("reviewer role mismatch")
     if not data.get("review_policy", {}).get("review_existing_translation_only"):
         errors.append("review must use existing translation")
+
     for name in ("source", "translation"):
         obj = data.get(name) or {}
-        if not obj.get("path") or not obj.get("sha256"):
-            errors.append(f"{name} artifact missing path/hash")
+        if not obj.get("sha256"):
+            errors.append(f"{name} artifact missing hash")
             continue
+        if schema == 1:
+            if not obj.get("path"):
+                errors.append(f"{name} artifact missing path")
+                continue
+        elif not obj.get("relative_path"):
+            errors.append(f"{name} artifact missing canonical relative_path")
+            continue
+
         if verify_files:
             p = resolve_artifact(obj, handoff_dir)
             if not p:
-                errors.append(f"{name} file missing/unresolved: {obj.get('path')}")
+                errors.append(f"{name} file missing/unresolved: {obj.get('relative_path') or obj.get('path')}")
             elif sha256_file(p) != obj["sha256"]:
                 errors.append(f"{name} hash mismatch")
+
     if data.get("source", {}).get("sha256") == data.get("translation", {}).get("sha256"):
         errors.append("source and translation hashes must differ")
     missing_rules = [r for r in REQUIRED_DO_NOT_REVERSE if r not in data.get("review_policy", {}).get("do_not_reverse", [])]
@@ -155,23 +245,26 @@ def validate(data, verify_files=True, handoff_dir=None):
         errors.append("required do_not_reverse rules missing")
     return {"valid": not errors, "errors": errors}
 
+
 def markdown(data):
     p = data["provenance"]
+    source_ref = data["source"].get("relative_path") or data["source"].get("path")
+    translation_ref = data["translation"].get("relative_path") or data["translation"].get("path")
     lines = [
         "# Scholarly Translation HANDOFF", "",
         f"- Workflow: `{data['workflow']}`",
         f"- Producer: **{data['producer']['agent']} / translator**",
         f"- Reviewer: **{data['reviewer']['agent']} / publication editor**",
-        f"- Source: `{data['source']['path']}`",
+        f"- Source relative path: `{source_ref}`",
         f"- Source SHA-256: `{data['source']['sha256']}`",
-        f"- Codex translation: `{data['translation']['path']}`",
+        f"- Codex translation relative path: `{translation_ref}`",
         f"- Translation SHA-256: `{data['translation']['sha256']}`",
         f"- Fresh translation: `{p['fresh_translation']}`",
         f"- Translated chunks: `{', '.join(p['translated_chunks']) or 'none'}`",
         f"- Retranslated chunks: `{', '.join(p['retranslated_chunks']) or 'none'}`",
         f"- Reused chunks: `{', '.join(p['reused_chunks']) or 'none'}`",
         "", "## Portability", "",
-        "Artifact identity is the SHA-256 hash. Paths are locators only; Windows `R:\\...` and WSL `/mnt/r/...` forms are resolved automatically when possible.",
+        "Artifact identity is the canonical POSIX-style `relative_path` plus SHA-256. Absolute Windows/WSL paths are locators only. Common `R:\\...` and `/mnt/r/...` forms are resolved automatically when possible.",
         "", "## Claude Reviewer Contract", "",
         "Claude Code reviews the Codex translation. It does **not** independently translate the Korean manuscript from scratch.",
         "", "### Do not reverse",
@@ -185,6 +278,7 @@ def markdown(data):
         "", "The original source and Codex translator artifacts are immutable inputs to the reviewer.",
     ]
     return "\n".join(lines) + "\n"
+
 
 def main():
     ap = argparse.ArgumentParser()
@@ -207,5 +301,7 @@ def main():
         r = validate(d, not args.no_file_check, handoff_dir=hp.parent)
         print(json.dumps(r, ensure_ascii=False, indent=2))
         raise SystemExit(0 if r["valid"] else 2)
+
+
 if __name__ == "__main__":
     main()

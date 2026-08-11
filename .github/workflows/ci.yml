@@ -5,13 +5,14 @@ on:
     branches:
       - main
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   test:
-    name: Python Checks
+    name: Python Checks (Ubuntu)
     runs-on: ubuntu-latest
     env:
       PYTHONPYCACHEPREFIX: .pycache
@@ -30,3 +31,24 @@ jobs:
 
       - name: Run unit tests
         run: python -m unittest discover -s tests -p 'test_*.py' -v
+
+  phase22-portability-windows:
+    name: Phase 2.2.1 Portability (Windows)
+    runs-on: windows-latest
+    env:
+      PYTHONPYCACHEPREFIX: .pycache
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile handoff sources
+        run: python -m compileall scripts/scholarly_handoff.py scripts/reviewer_gate.py tests/test_phase22_handoff.py
+
+      - name: Run Phase 2.2.1 portability tests
+        run: python -m unittest discover -s tests -p 'test_phase22_handoff.py' -v
