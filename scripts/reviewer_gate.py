@@ -7,8 +7,9 @@ from scholarly_handoff import sha256_file, validate
 REQUIRED_OUTPUTS = ("final_en", "publication_audit", "review_changes")
 
 def check(handoff_path, final_en=None, publication_audit=None, review_changes=None):
-    data = json.loads(Path(handoff_path).read_text(encoding="utf-8"))
-    hv = validate(data, verify_files=True)
+    hp = Path(handoff_path)
+    data = json.loads(hp.read_text(encoding="utf-8"))
+    hv = validate(data, verify_files=True, handoff_dir=hp.parent)
     errors = list(hv["errors"])
     outputs = {"final_en": final_en, "publication_audit": publication_audit, "review_changes": review_changes}
     for key in REQUIRED_OUTPUTS:
